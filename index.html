@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEXORA AI</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
+
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif; }
+  .app { height: 100dvh; display: flex; overflow: hidden; }
+  .sidebar { width: 270px; flex-shrink: 0; }
+  .main { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+  .messages { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
+  .message { max-width: 850px; margin: 0 auto; width: 100%; padding: 20px 22px; }
+  .bubble { overflow-wrap: anywhere; line-height: 1.75; }
+  .bubble pre { overflow-x: auto; background: #111827; color: #f9fafb;
+    padding: 16px; border-radius: 12px; margin: 12px 0; }
+  .bubble code { font-family: ui-monospace, monospace; }
+  .bubble :not(pre) > code { background: #e5e7eb; color: #111827;
+    padding: 2px 5px; border-radius: 4px; }
+  .bubble a { color: #2563eb; text-decoration: underline; }
+  .bubble ul { list-style: disc; padding-left: 24px; }
+  .bubble ol { list-style: decimal; padding-left: 24px; }
+  .bubble blockquote { border-left: 3px solid #9ca3af; padding-left: 12px; color: #6b7280; }
+  .dark .bubble :not(pre) > code { background: #374151; color: #f9fafb; }
+  .dark .bubble a { color: #93c5fd; }
+  .dark { background: #111827; color: #f3f4f6; }
+  .dark .panel { background: #1f2937; border-color: #374151; }
+  .dark .muted { color: #9ca3af; }
+  .dark .field { background: #111827; border-color: #4b5563; color: #f9fafb; }
+  .dark .user-bubble { background: #374151; }
+  .dark .bubble pre { background: #030712; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 10px; padding: 9px; }
+  .icon-btn:hover { background: #e5e7eb; }
+  .dark .icon-btn:hover { background: #374151; }
+  .chat-item { width: 100%; text-align: left; padding: 10px 12px;
+    border-radius: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-item:hover, .chat-item.active { background: #e5e7eb; }
+  .dark .chat-item:hover, .dark .chat-item.active { background: #374151; }
+  .typing::after { content: "▋"; animation: blink 1s steps(2,start) infinite; }
+  @keyframes blink { to { visibility: hidden; } }
+  @media (max-width: 700px) {
+    .sidebar { display: none; }
+    .sidebar.open { display: flex; position: fixed; z-index: 30; inset: 0 auto 0 0;
+      box-shadow: 0 0 0 9999px #0007; }
+    .message { padding: 16px; }
+  }
+</style>
+</head>
+
+<body class="bg-white text-gray-900">
+<div class="app">
+
+  <aside id="sidebar" class="sidebar panel bg-gray-50 border-r border-gray-200 flex flex-col p-3">
+    <div class="flex items-center gap-2 px-2 py-3">
+      <div class="w-9 h-9 rounded-xl bg-violet-600 text-white flex items-center justify-center font-bold">N</div>
+      <div>
+        <div class="font-bold text-lg">NEXORA AI</div>
+        <div class="text-xs muted text-gray-500">Your AI workspace</div>
+      </div>
+      <button id="closeSidebar" class="icon-btn ml-auto md:hidden" aria-label="Close menu">✕</button>
+    </div>
+
+    <button id="newChat" class="mt-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white p-3 text-sm font-semibold">
+      ＋ New chat
+    </button>
+
+    <div class="text-xs uppercase tracking-wider muted text-gray-500 px-2 mt-6 mb-2">Recent chats</div>
+    <div id="history" class="flex-1 overflow-y-auto space-y-1"></div>
+
+    <div class="border-t border-gray-200 mt-3 pt-3 space-y-1">
+      <button id="settingsBtn" class="chat-item">⚙ Settings & API key</button>
+      <button id="themeBtn" class="chat-item">☾ Toggle dark mode</button>
+      <div class="text-xs muted text-gray-500 px-3 pt-3">NEXORA AI · Prototype</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="panel border-b border-gray-200 flex items-center gap-3 px-4 py-3">
+      <button id="menuBtn" class="icon-btn" aria-label="Open menu">☰</button>
+      <div class="min-w-0 flex-1">
+        <div class="font-semibold">NEXORA AI</div>
+        <div class="text-xs muted text-gray-500">Powered by OpenRouter</div>
+      </div>
+      <select id="model" class="field border border-gray-300 rounded-lg px-2 py-2 text-sm max-w-[190px]">
+        <option value="deepseek/deepseek-r1:free">DeepSeek R1 (Free)</option>
+        <option value="deepseek/deepseek-chat-v3-0324:free">DeepSeek Chat (Free)</option>
+        <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 (Free)</option>
+        <option value="google/gemini-2.0-flash-exp:free">Gemini Flash (Free)</option>
+      </select>
+      <button id="clearBtn" class="icon-btn" title="Clear current chat">▢</button>
+    </header>
+
+    <section id="messages" class="messages">
+      <div id="welcome" class="min-h-full flex flex-col items-center justify-center text-center p-6">
+        <div class="w-16 h-16 rounded-2xl bg-violet-600 text-white flex items-center justify-center text-3xl font-bold mb-5">N</div>
+        <h1 class="text-3xl sm:text-4xl font-bold tracking-tight">What can I help with?</h1>
+        <p class="muted text-gray-500 mt-3 max-w-md">Ask questions, write code, explore ideas, or learn something new.</p>
+        <div class="grid sm:grid-cols-2 gap-3 mt-8 w-full max-w-2xl text-left">
+          <button class="suggestion panel border border-gray-200 rounded-xl p-4 hover:bg-gray-50">💡 <b>Brainstorm ideas</b><div class="muted text-sm mt-1">Find creative ideas for a project</div></button>
+          <button class="suggestion panel border border-gray-200 rounded-xl p-4 hover:bg-gray-50">💻 <b>Write code</b><div class="muted text-sm mt-1">Build and debug an application</div></button>
+          <button class="suggestion panel border border-gray-200 rounded-xl p-4 hover:bg-gray-50">📚 <b>Learn a topic</b><div class="muted text-sm mt-1">Explain something step by step</div></button>
+          <button class="suggestion panel border border-gray-200 rounded-xl p-4 hover:bg-gray-50">✍️ <b>Improve my writing</b><div class="muted text-sm mt-1">Make a draft clearer and stronger</div></button>
+        </div>
+      </div>
+      <div id="messageList"></div>
+    </section>
+
+    <footer class="panel border-t border-gray-200 p-3 sm:p-5">
+      <div class="max-w-3xl mx-auto">
+        <div class="field border border-gray-300 rounded-2xl p-3 shadow-sm">
+          <textarea id="prompt" rows="2" placeholder="Message NEXORA AI..."
+            class="w-full resize-none outline-none bg-transparent px-1 py-1 max-h-44"
+            aria-label="Your message"></textarea>
+          <div class="flex items-center gap-2 mt-2">
+            <span id="status" class="muted text-xs text-gray-500 flex-1">Ready</span>
+            <button id="stopBtn" class="hidden rounded-xl px-3 py-2 text-sm border border-gray-300">Stop</button>
+            <button id="sendBtn" class="rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-semibold">Send ↑</button>
+          </div>
+        </div>
+        <p class="muted text-gray-500 text-center text-xs mt-3">AI can make mistakes. Verify important information.</p>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<!-- Settings modal -->
+<div id="settingsModal" class="hidden fixed inset-0 z-50 bg-black/50 items-center justify-center p-4">
+  <div class="panel bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-xl font-bold">Settings</h2>
+      <button id="closeSettings" class="icon-btn">✕</button>
+    </div>
+    <label for="apiKey" class="block text-sm font-semibold mb-2">OpenRouter API key</label>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="sk-or-v1-..."
+      class="field w-full border border-gray-300 rounded-xl p-3 outline-none">
+    <p class="muted text-gray-500 text-xs mt-2">For this browser prototype, the key is saved in local storage. Do not use this setup for a public or production app.</p>
+    <label for="systemPrompt" class="block text-sm font-semibold mt-5 mb-2">System instructions</label>
+    <textarea id="systemPrompt" rows="4"
+      class="field w-full border border-gray-300 rounded-xl p-3 outline-none"
+      placeholder="You are NEXORA AI, a helpful assistant."></textarea>
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="cancelSettings" class="rounded-xl border border-gray-300 px-4 py-2">Cancel</button>
+      <button id="saveSettings" class="rounded-xl bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 font-semibold">Save settings</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const STORAGE = {
+    chats: "nexora_chats_v1",
+    apiKey: "nexora_api_key",
+    model: "nexora_model",
+    system: "nexora_system_prompt",
+    theme: "nexora_theme"
+  };
+
+  let chats = readJSON(STORAGE.chats, []);
+  let currentId = null;
+  let controller = null;
+  let isBusy = false;
+
+  function readJSON(key, fallback) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key));
+      return value ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function saveChats() {
+    try {
+      localStorage.setItem(STORAGE.chats, JSON.stringify(chats));
+    } catch (e) {
+      setStatus("Storage full. Consider deleting old chats.");
+    }
+  }
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function currentChat() {
+    return chats.find(c => c.id === currentId) || null;
+  }
+
+  function newChat() {
+    if (isBusy) return;
+    const chat = {
+      id: uid(),
+      title: "New chat",
+      createdAt: Date.now(),
+      messages: []
+    };
+    chats.unshift(chat);
+    currentId = chat.id;
+    saveChats();
+    renderHistory();
+    renderMessages();
+    $("prompt").focus();
+    closeSidebarMobile();
+  }
+
+  function openChat(id) {
+    if (isBusy) return;
+    currentId = id;
+    renderHistory();
+    renderMessages();
+    closeSidebarMobile();
+  }
+
+  function renderHistory() {
+    const root = $("history");
+    root.replaceChildren();
+
+    if (!chats.length) {
+      const empty = document.createElement("p");
+      empty.className = "text-xs muted text-gray-500 px-3 py-4";
+      empty.textContent = "Your chats will appear here.";
+      root.appendChild(empty);
+      return;
+    }
+
+    chats.forEach(chat => {
+      const row = document.createElement("div");
+      row.className = "flex items-center gap-1";
+
+      const btn = document.createElement("button");
+      btn.className = "chat-item flex-1 " + (chat.id === currentId ? "active" : "");
+      btn.textContent = chat.title || "New chat";
+      btn.title = chat.title || "New chat";
+      btn.onclick = () => openChat(chat.id);
+
+      const del = document.createElement("button");
+      del.className = "icon-btn text-gray-500";
+      del.textContent = "×";
+      del.title = "Delete chat";
+      del.setAttribute("aria-label", "Delete " + (chat.title || "chat"));
+      del.onclick = () => {
+        if (isBusy) return;
+        chats = chats.filter(c => c.id !== chat.id);
+        if (currentId === chat.id) currentId = chats[0]?.id || null;
+        saveChats();
+        renderHistory();
+        renderMessages();
+      };
+
+      row.append(btn, del);
+      root.appendChild(row);
+    });
+  }
+
+  function renderMarkdown(text) {
+    const html = marked.parse(text || "", { breaks: true });
+    return DOMPurify.sanitize(html);
+  }
+
+  function renderMessages() {
+    const chat = currentChat();
+    const list = $("messageList");
+    list.replaceChildren();
+    $("welcome").classList.toggle("hidden", !!chat?.messages.length);
+
+    if (!chat) {
+      $("welcome").classList.remove("hidden");
+      return;
+    }
+
+    chat.messages.forEach(msg => {
+      list.appendChild(createMessageElement(msg));
+    });
+
+    $("messages").scrollTop = $("messages").scrollHeight;
+  }
+
+  function createMessageElement(msg) {
+    const outer = document.createElement("article");
+    outer.className = "message";
+
+    const line = document.createElement("div");
+    line.className = "flex gap-3 items-start";
+
+    const avatar = document.createElement("div");
+    avatar.className = "w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-sm font-bold " +
+      (msg.role === "user" ? "bg-gray-200 text-gray-800" : "bg-violet-600 text-white");
+    avatar.textContent = msg.role === "user" ? "Y" : "N";
+
+    const body = document.createElement("div");
+    body.className = "min-w-0 flex-1";
+
+    const label = document.createElement("div");
+    label.className = "text-sm font-semibold mb-2";
+    label.textContent = msg.role === "user" ? "You" : "NEXORA AI";
+
+    const content = document.createElement("div");
+    content.className = "bubble text-sm sm:text-base " +
+      (msg.role === "user" ? "user-bubble bg-gray-100 rounded-xl px-4 py-3" : "");
+    content.innerHTML = msg.role === "assistant"
+      ? renderMarkdown(msg.content)
+      : DOMPurify.sanitize(msg.content).replace(/\n/g, "<br>");
+
+    body.append(label, content);
+
+    if (msg.role === "assistant" && msg.content) {
+      const copy = document.createElement("button");
+      copy.className = "icon-btn text-xs muted mt-2";
+      copy.textContent = "▣ Copy";
+      copy.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(msg.content);
+          copy.textContent = "Copied!";
+          setTimeout(() => copy.textContent = "▣ Copy", 1200);
+        } catch {
+          setStatus("Clipboard access unavailable.");
+        }
+      };
+      body.appendChild(copy);
+    }
+
+    line.append(avatar, body);
+    outer.appendChild(line);
+    return outer;
+  }
+
+  function appendMessage(role, content) {
+    const chat = currentChat();
+    if (!chat) return null;
+
+    const msg = { role, content };
+    chat.messages.push(msg);
+
+    if (role === "user" && chat.title === "New chat") {
+      chat.title = content.replace(/\s+/g, " ").slice(0, 42) || "New chat";
+      renderHistory();
+    }
+
+    saveChats();
+    renderMessages();
+    return msg;
+  }
+
+  function setStatus(text) {
+    $("status").textContent = text;
+  }
+
+  function setBusy(value) {
+    isBusy = value;
+    $("sendBtn").disabled = value;
+    $("prompt").disabled = value;
+    $("stopBtn").classList.toggle("hidden", !value);
+    if (!value) $("prompt").focus();
+  }
+
+  async function sendMessage() {
+    if (isBusy) return;
+
+    const input = $("prompt");
+    const text = input.value.trim();
+    if (!text) return;
+
+    if (!localStorage.getItem(STORAGE.apiKey)) {
+      openSettings();
+      setStatus("Add your OpenRouter API key to start.");
+      return;
+    }
+
+    if (!currentChat()) newChat();
+
+    input.value = "";
+    input.style.height = "auto";
+    appendMessage("user", text);
+
+    const assistantMsg = appendMessage("assistant", "");
+    if (!assistantMsg) return;
+
+    controller = new AbortController();
+    setBusy(true);
+    setStatus("Connecting to model…");
+
+    try {
+      await streamCompletion(currentChat(), assistantMsg, controller.signal);
+      saveChats();
+      setStatus("Ready");
+    } catch (error) {
+      if (error.name === "AbortError") {
+        assistantMsg.content += assistantMsg.content ? "\n\n*Generation stopped.*" : "Generation stopped.";
+        setStatus("Stopped");
+      } else {
+        const message = error.message || "Something went wrong.";
+        assistantMsg.content += assistantMsg.content
+          ? "\n\n**Error:** " + message
+          : "Error: " + message;
+        setStatus("Request failed");
+      }
+    } finally {
+      controller = null;
+      setBusy(false);
+      saveChats();
+      renderMessages();
+    }
+  }
+
+  async function streamCompletion(chat, assistantMsg, signal) {
+    const apiKey = localStorage.getItem(STORAGE.apiKey);
+    const model = $("model").value;
+    const systemPrompt = localStorage.getItem(STORAGE.system) ||
+      "You are NEXORA AI, a helpful, accurate, and friendly AI assistant.";
+
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...chat.messages
+        .filter(m => (m.role === "user" || m.role === "assistant") && m.content)
+        .slice(0, -1)
+        .map(m => ({ role: m.role, content: m.content })),
+      { role: "user", content: chat.messages.filter(m => m.role === "user").slice(-1)[0].content }
+    ];
+
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      signal,
+      headers: {
+        "Authorization": "Bearer " + apiKey,
+        "Content-Type": "application/json",
+        "HTTP-Referer": location.origin,
+        "X-Title": "NEXORA AI"
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        temperature: 0.7
+      })
+    });
+
+    if (!response.ok) {
+      let details = "";
+      try {
+        const data = await response.json();
+        details = data.error?.message || JSON.stringify(data.error || data);
+      } catch {}
+      throw new Error("API error " + response.status + (details ? ": " + details : ""));
+    }
+
+    if (!response.body) throw new Error("Streaming is not supported by this response.");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    setStatus("Generating…");
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line.startsWith("data:")) continue;
+
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") {
+          saveChats();
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) throw new Error(parsed.error.message || "Model returned an error.");
+
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (typeof delta === "string" && delta) {
+            assistantMsg.content += delta;
+            updateLastAssistant(assistantMsg.content);
+          }
+        } catch (error) {
+          if (error.message && error.message.startsWith("Model returned")) throw error;
+          if (error instanceof SyntaxError) continue;
+          throw error;
+        }
+      }
+    }
+  }
+
+  function updateLastAssistant(content) {
+    const list = $("messageList");
+    const articles = list.querySelectorAll("article");
+    const last = articles[articles.length - 1];
+    if (!last) return;
+
+    const bubble = last.querySelector(".bubble");
+    if (bubble) {
+      bubble.innerHTML = renderMarkdown(content);
+      if (isBusy) bubble.classList.add("typing");
+      else bubble.classList.remove("typing");
+    }
+    $("messages").scrollTop = $("messages").scrollHeight;
+  }
+
+  function openSettings() {
+    $("apiKey").value = localStorage.getItem(STORAGE.apiKey) || "";
+    $("systemPrompt").value = localStorage.getItem(STORAGE.system) ||
+      "You are NEXORA AI, a helpful, accurate, and friendly AI assistant.";
+    $("settingsModal").classList.remove("hidden");
+    $("settingsModal").classList.add("flex");
+  }
+
+  function closeSettings() {
+    $("settingsModal").classList.add("hidden");
+    $("settingsModal").classList.remove("flex");
+  }
+
+  function closeSidebarMobile() {
+    $("sidebar").classList.remove("open");
+  }
+
+  $("newChat").onclick = newChat;
+  $("sendBtn").onclick = sendMessage;
+
+  $("prompt").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  $("prompt").addEventListener("input", () => {
+    $("prompt").style.height = "auto";
+    $("prompt").style.height = Math.min($("prompt").scrollHeight, 176) + "px";
+  });
+
+  $("stopBtn").onclick = () => {
+    if (controller) controller.abort();
+  };
+
+  $("settingsBtn").onclick = openSettings;
+  $("closeSettings").onclick = closeSettings;
+  $("cancelSettings").onclick = closeSettings;
+
+  $("saveSettings").onclick = () => {
+    const key = $("apiKey").value.trim();
+    const system = $("systemPrompt").value.trim();
+
+    if (key) localStorage.setItem(STORAGE.apiKey, key);
+    else localStorage.removeItem(STORAGE.apiKey);
+
+    localStorage.setItem(STORAGE.system, system ||
+      "You are NEXORA AI, a helpful, accurate, and friendly AI assistant.");
+
+    closeSettings();
+    setStatus(key ? "Settings saved" : "API key removed");
+  };
+
+  $("settingsModal").addEventListener("click", e => {
+    if (e.target === $("settingsModal")) closeSettings();
+  });
+
+  $("model").value = localStorage.getItem(STORAGE.model) ||
+    "deepseek/deepseek-r1:free";
+
+  $("model").addEventListener("change", () => {
+    localStorage.setItem(STORAGE.model, $("model").value);
+  });
+
+  $("themeBtn").onclick = () => {
+    document.body.classList.toggle("dark");
+    localStorage.setItem(STORAGE.theme,
+      document.body.classList.contains("dark") ? "dark" : "light");
+  };
+
+  $("clearBtn").onclick = () => {
+    if (isBusy) return;
+    const chat = currentChat();
+    if (!chat) return;
+    chat.messages = [];
+    chat.title = "New chat";
+    saveChats();
+    renderHistory();
+    renderMessages();
+  };
+
+  $("menuBtn").onclick = () => $("sidebar").classList.toggle("open");
+  $("closeSidebar").onclick = closeSidebarMobile;
+
+  document.querySelectorAll(".suggestion").forEach(button => {
+    button.onclick = () => {
+      const firstLine = button.innerText.split("\n")[0].replace(/^[^\w]+/, "");
+      const prompts = {
+        "Brainstorm ideas": "Help me brainstorm creative ideas for a new project.",
+        "Write code": "Help me build an application. Ask me about my requirements if needed.",
+        "Learn a topic": "Teach me a topic step by step, using clear examples.",
+        "Improve my writing": "Help me improve my writing. Ask me to share the draft."
+      };
+      $("prompt").value = prompts[firstLine] || firstLine;
+      $("prompt").focus();
+    };
+  });
+
+  if (localStorage.getItem(STORAGE.theme) === "dark") {
+    document.body.classList.add("dark");
+  }
+
+  if (chats.length) currentId = chats[0].id;
+  else {
+    const chat = {
+      id: uid(),
+      title: "New chat",
+      createdAt: Date.now(),
+      messages: []
+    };
+    chats.unshift(chat);
+    currentId = chat.id;
+    saveChats();
+  }
+
+  renderHistory();
+  renderMessages();
+})();
+</script>
+</body>
+</html>se 
